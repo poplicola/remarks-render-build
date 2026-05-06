@@ -39,9 +39,15 @@ jobs:
           # so deferring the import until actually called avoids the build-time
           # ImportError without affecting the priority use case (PDF + annotations).
           cat > _patch_imports.py <<'PY'
-          import pathlib, rmc
+          import pathlib, importlib.util
+          # Locate rmc/__init__.py WITHOUT importing rmc (importing would re-trigger
+          # the cairosvg import chain we're patching out).
+          spec = importlib.util.find_spec("rmc")
+          if spec is None or spec.origin is None:
+              raise SystemExit("rmc not findable on sys.path")
+          rmc_init = pathlib.Path(spec.origin)
           for path in [
-              pathlib.Path(rmc.__file__),
+              rmc_init,
               pathlib.Path("remarks") / "remarks.py",
           ]:
               src = path.read_text(encoding="utf-8")
