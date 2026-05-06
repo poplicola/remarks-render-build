@@ -1,0 +1,60 @@
+name: Build remarks-render.exe (Windows x64)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-remarks-render.yml
+
+jobs:
+  build:
+    runs-on: windows-latest  # x64 — has prebuilt PyMuPDF + brotli wheels, no MSVC needed
+    timeout-minutes: 30
+
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Install poetry
+        run: python -m pip install --upgrade pip poetry
+
+      - name: Clone Scrybbling-together/remarks
+        run: git clone --depth 1 https://github.com/Scrybbling-together/remarks remarks-src
+
+      - name: Install remarks deps
+        working-directory: remarks-src
+        run: poetry install --no-root
+
+      - name: Install PyInstaller
+        working-directory: remarks-src
+        run: poetry run pip install pyinstaller
+
+      - name: Build remarks-render.exe
+        working-directory: remarks-src
+        run: |
+          poetry run pyinstaller --onefile --name remarks-render --clean `
+            --collect-all rmscene `
+            --collect-all rmc `
+            --collect-all remarks `
+            --collect-data remarks `
+            --add-data "remarks/output;remarks/output" `
+            remarks/__main__.py
+
+      - name: Smoke-test the binary
+        working-directory: remarks-src
+        run: |
+          .\dist\remarks-render.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "remarks-render exited $LASTEXITCODE" }
+          (Get-Item .\dist\remarks-render.exe).Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: remarks-render-windows-x64
+          path: remarks-src/dist/remarks-render.exe
+          retention-days: 30
+          compression-level: 9
