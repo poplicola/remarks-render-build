@@ -29,6 +29,34 @@ jobs:
         working-directory: remarks-src
         run: poetry install --no-root
 
+      - name: Lazy-load cairosvg-dependent code paths (Windows-no-Cairo workaround)
+        working-directory: remarks-src
+        shell: pwsh
+        run: |
+          # rmc and remarks both eagerly `from rmc.exporters.pdf import rm_to_pdf`,
+          # which imports cairosvg, which dlopens libcairo-2.dll — not present on
+          # Windows runners. Annotated-PDF rendering uses PyMuPDF, not this path,
+          # so deferring the import until actually called avoids the build-time
+          # ImportError without affecting the priority use case.
+          poetry run python - <<'PY'
+          import pathlib, rmc
+          for path in [
+              pathlib.Path(rmc.__file__),
+              pathlib.Path("remarks") / "remarks.py",
+          ]:
+              src = path.read_text(encoding="utf-8")
+              old = "from rmc.exporters.pdf import rm_to_pdf" if path.name == "remarks.py" \
+                    else "from .exporters.pdf import rm_to_pdf"
+              new = "def rm_to_pdf(*a, **kw):\n    from " + (
+                    "rmc.exporters.pdf" if path.name == "remarks.py" else ".exporters.pdf"
+                  ) + " import rm_to_pdf as _impl\n    return _impl(*a, **kw)"
+              if old not in src:
+                  print(f"NOTE: pattern not found in {path}, skipping")
+                  continue
+              path.write_text(src.replace(old, new), encoding="utf-8")
+              print(f"Patched {path}")
+          PY
+
       - name: Install PyInstaller
         working-directory: remarks-src
         run: poetry run pip install pyinstaller
